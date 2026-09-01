@@ -38,6 +38,11 @@ from .metrics import COLONNE
 
 VERSIONE_SCHEMA = 1
 
+# Numero di fetta attribuito ai titoli che non hanno alcuna serie di prezzi.
+# Restano nell'universo dello screener, ma non c'e' nessun file da aprire per
+# loro: chi legge il pannello li salta.
+SENZA_FETTA = -1
+
 
 class ArchivioMancante(RuntimeError):
     """L'archivio non c'e' e non si e' potuto scaricare."""
@@ -227,7 +232,13 @@ def scrivi_metriche(righe: Iterable[dict], mappa_fette: dict[str, int],
             df[colonna] = pd.to_numeric(df[colonna], errors="coerce").astype(tipo)
 
     df = df[list(COLONNE)]
-    df["fetta"] = df["ticker"].map(mappa_fette).astype("int16")
+
+    # Un titolo puo' esistere nell'universo senza avere alcuna serie di
+    # prezzi: capita quando l'API risponde con una lista vuota. La sua riga
+    # resta qui - l'universo dello screener dev'essere completo, altrimenti i
+    # conteggi non tornano - ma non appartiene a nessuna fetta del pannello.
+    # Il -1 e' esattamente quel "nessuna fetta", e i lettori lo sanno.
+    df["fetta"] = df["ticker"].map(mappa_fette).fillna(SENZA_FETTA).astype("int16")
     df = df.sort_values("ticker").reset_index(drop=True)
 
     percorso = cartella(base) / FILE_METRICS
@@ -301,7 +312,10 @@ def leggi_prezzi(tickers: Sequence[str], mappa_fette: dict[str, int],
     Restituisce un DataFrame date x ticker, allineato sul calendario unione
     delle fette lette, con NaN dove il titolo non era ancora quotato.
     """
-    richiesti = [t for t in dict.fromkeys(tickers) if t in mappa_fette]
+    # Si scartano i titoli senza fetta: non hanno serie di prezzi, e cercarli
+    # significherebbe aprire un file che non esiste.
+    richiesti = [t for t in dict.fromkeys(tickers)
+                 if int(mappa_fette.get(t, SENZA_FETTA)) >= 0]
     if not richiesti:
         return pd.DataFrame()
 
@@ -497,7 +511,7 @@ def assicura_nucleo(base: Path | str | None = None,
 def assicura_fette(indici: Iterable[int], base: Path | str | None = None,
                    on_progress: Callable[[str, int, int], None] | None = None) -> None:
     """Scarica le fette del pannello prezzi che ancora non sono in cache."""
-    for indice in sorted(set(int(i) for i in indici)):
+    for indice in sorted({int(i) for i in indici if int(i) >= 0}):
         relativo = f"{CLOSE_DIR}/{SHARD_PATTERN.format(indice)}"
         if (cartella(base) / relativo).exists():
             continue
