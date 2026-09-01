@@ -120,10 +120,18 @@ def main() -> int:
     # ---- Chiave ----------------------------------------------------------
     token = eodhd.get_api_key()
     if not token:
-        log("ERRORE: manca EODHD_API_KEY.")
-        log("Su GitHub: Settings -> Secrets and variables -> Actions.")
+        log("ERRORE: chiave API EODHD non trovata.")
+        log("")
+        log("Ho cercato qui:")
+        for riga in eodhd.diagnostica_chiave():
+            log(f"  - {riga}")
+        log("")
+        log("Su GitHub: Settings -> Secrets and variables -> Actions ->")
+        log("scheda SECRETS (non Variables) -> New repository secret.")
+        log("Nome esatto: EODHD_API_KEY. Valore: la chiave nuda, senza virgolette.")
+        log("In locale:   export EODHD_API_KEY=\"...\"")
         return 1
-    log(f"Chiave API: {eodhd.mask_key(token)}")
+    log(f"Chiave API: {eodhd.mask_key(token)} ({len(token)} caratteri)")
 
     try:
         info = eodhd.fetch_user_info(token)
