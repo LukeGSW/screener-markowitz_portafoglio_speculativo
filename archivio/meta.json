@@ -1,0 +1,27 @@
+{
+  "costruito_il": "2026-09-01T15:39:06.195927+00:00",
+  "universo": "USA",
+  "universo_etichetta": "Solo Stati Uniti (NYSE, NASDAQ, AMEX, ETF)",
+  "borse": [
+    "US"
+  ],
+  "benchmark": "SPY.US",
+  "anni_storico": 20,
+  "data_inizio": "2006-03-05",
+  "data_fine": "2026-09-01",
+  "n_universo": 11,
+  "n_misurati": 8,
+  "n_con_prezzi": 11,
+  "n_con_storico_pieno": 5,
+  "n_fette": 1,
+  "dimensione_fetta": 1500,
+  "download_secondi": 0.3,
+  "esiti_download": {
+    "OK": 8,
+    "VUOTO": 0,
+    "ASSENTE": 0,
+    "ERRORE": 0,
+    "CORTO": 3
+  },
+  "versione_schema": 1
+}
