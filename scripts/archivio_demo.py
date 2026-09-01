@@ -67,6 +67,20 @@ def genera(quanti: int, anni_max: int, seme: int,
         ticker = f"DEMO{i:04d}.US" if i else BENCHMARK
         regolare = False
 
+        # Un titolo ogni duecentocinquanta esiste nel listino ma l'API non
+        # restituisce nulla per lui. Non e' un dettaglio pittoresco: sul
+        # mercato vero succede, e sono proprio questi titoli - presenti
+        # nell'universo, assenti dal pannello prezzi - a rompere il codice
+        # che dia per scontato che le due cose coincidano.
+        if i and i % 250 == 0:
+            righe.append(metrics.riga_vuota(ticker))
+            anagrafica.append({
+                "ticker": ticker, "code": ticker.split(".")[0],
+                "name": f"Societa' senza quotazioni {i}",
+                "type": "Common Stock", "exchange": "US", "currency": "USD",
+            })
+            continue
+
         if ticker == BENCHMARK:
             anni, beta, alfa, idio, volume = anni_max, 1.0, 0.0, 0.0025, 4e8
             base = 120.0
