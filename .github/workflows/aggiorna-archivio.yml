@@ -1,0 +1,187 @@
+# ---------------------------------------------------------------------------
+# Ricostruzione semestrale dell'archivio dati.
+#
+# Come funziona, e perche' cosi'.
+#
+# Il lavoro vero - scaricare ventitremilacinquecento serie storiche - va
+# fatto due volte l'anno. Ma un cron che scatta due volte l'anno su GitHub
+# NON funziona: le pianificazioni vengono disattivate d'ufficio dopo
+# sessanta giorni di inattivita' del repository, e in mezzo a due esecuzioni
+# semestrali di giorni ne passano centottanta.
+#
+# La soluzione e' scattare OGNI MESE e lasciare che sia lo script a decidere.
+# Con "--se-piu-vecchio-di 180" le esecuzioni mensili non fanno assolutamente
+# nulla - zero chiamate API, una manciata di secondi - finche' l'archivio non
+# compie sei mesi. L'undicesima volta ricostruisce.
+#
+# E poiche' ogni esecuzione riscrive comunque il file di stato nel
+# repository, l'attivita' non si azzera mai e la pianificazione resta viva.
+#
+# Prima di usarlo, una cosa sola:
+#   Settings -> Secrets and variables -> Actions -> New repository secret
+#   Nome: EODHD_API_KEY   Valore: la tua chiave
+# ---------------------------------------------------------------------------
+
+name: aggiorna-archivio
+
+on:
+  schedule:
+    # Ogni primo del mese alle 03:00 UTC. Quasi sempre e' un non-evento.
+    - cron: "0 3 1 * *"
+  workflow_dispatch:
+    inputs:
+      universo:
+        description: "Mercati da includere"
+        type: choice
+        options: [USA, GLOBAL]
+        default: USA
+      anni:
+        description: "Anni di storico da scaricare"
+        default: "20"
+      forza:
+        description: "Ricostruisci anche se l'archivio e' recente"
+        type: boolean
+        default: true
+      limite:
+        description: "Solo i primi N titoli (0 = tutti). Per le prove"
+        default: "0"
+
+# Due ricostruzioni in parallelo consumerebbero il doppio delle chiamate API
+# per ottenere lo stesso risultato.
+concurrency:
+  group: archivio
+  cancel-in-progress: false
+
+permissions:
+  contents: write        # serve per pubblicare la release e per il commit di stato
+
+jobs:
+  costruisci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330       # il tetto di GitHub e' 360; il lavoro ne prende ~35
+
+    steps:
+      - name: Scarica il codice
+        uses: actions/checkout@v4
+
+      - name: Prepara Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Installa le dipendenze
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Controlla che il codice sia sano
+        run: python tests/test_equivalenza.py
+
+      - name: Recupera lo stato dell'archivio attuale
+        # E' la data dell'ultima costruzione, tenuta nel repository apposta
+        # per poter decidere se rifare il lavoro senza scaricare nulla.
+        run: |
+          mkdir -p dist
+          if [ -f archivio/meta.json ]; then
+            cp archivio/meta.json dist/meta.json
+            echo "Ultima costruzione:"
+            python -c "import json;print(json.load(open('dist/meta.json'))['costruito_il'])"
+          else
+            echo "Nessun archivio precedente: si costruisce da zero."
+          fi
+
+      - name: Costruisci l'archivio
+        env:
+          EODHD_API_KEY: ${{ secrets.EODHD_API_KEY }}
+        run: |
+          python scripts/build_dataset.py \
+            --universo "${{ inputs.universo || 'USA' }}" \
+            --anni "${{ inputs.anni || '20' }}" \
+            --limite "${{ inputs.limite || '0' }}" \
+            --se-piu-vecchio-di 180 \
+            ${{ (inputs.forza == true) && '--forza' || '' }} \
+            --out dist
+
+      - name: Che cosa e' successo
+        id: esito
+        run: echo "stato=$(cat dist/esito.txt)" >> "$GITHUB_OUTPUT"
+
+      # -- Da qui in poi solo se si e' costruito davvero --------------------
+
+      - name: Prepara gli asset della release
+        if: steps.esito.outputs.stato == 'costruito'
+        env:
+          REPOSITORY: ${{ github.repository }}
+        # Gli asset di una release sono file piatti, senza cartelle: le fette
+        # del pannello prezzi vengono rinominate da close/part_NN.parquet a
+        # close_part_NN.parquet. E' esattamente la trasformazione che
+        # l'applicazione si aspetta quando le ricompone.
+        run: |
+          set -euo pipefail
+          mkdir -p upload
+          cp dist/meta.json dist/universe.parquet dist/metrics.parquet upload/
+          shopt -s nullglob
+          fette=(dist/close/part_*.parquet)
+          if [ ${#fette[@]} -eq 0 ]; then
+            echo "::error::Nessuna fetta del pannello prezzi da pubblicare."
+            exit 1
+          fi
+          for f in "${fette[@]}"; do
+            cp "$f" "upload/close_$(basename "$f")"
+          done
+          ls -lh upload
+          du -sh upload
+          python scripts/note_release.py dist/meta.json "$REPOSITORY" > note.md
+          cat note.md
+
+      - name: Pubblica la release
+        if: steps.esito.outputs.stato == 'costruito'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # Il tag "archivio-corrente" e' mobile: si cancella e si ricrea a ogni
+        # costruzione. Cosi' l'indirizzo ARCHIVE_URL impostato nei secrets di
+        # Streamlit non cambia mai, e l'applicazione trova sempre l'ultimo
+        # archivio senza che nessuno debba toccare la configurazione.
+        run: |
+          set -euo pipefail
+          gh release delete archivio-corrente --yes --cleanup-tag || true
+          sleep 5
+          gh release create archivio-corrente upload/* \
+            --title "Archivio dati del $(date -u +%Y-%m-%d)" \
+            --notes-file note.md
+
+      - name: Aggiorna il file di stato nel repository
+        if: steps.esito.outputs.stato == 'costruito'
+        # Questo commit ha due scopi. Registra quando e' stato costruito
+        # l'archivio, cosi' le esecuzioni mensili successive sapranno di non
+        # dover fare nulla; e tiene "attivo" il repository, evitando che
+        # GitHub disattivi la pianificazione per inattivita'.
+        run: |
+          mkdir -p archivio
+          cp dist/meta.json archivio/meta.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add archivio/meta.json
+          git commit -m "Archivio dati aggiornato al $(date -u +%Y-%m-%d)" || exit 0
+          git push
+
+      - name: Riepilogo
+        if: always()
+        run: |
+          {
+            echo "## Aggiornamento archivio"
+            echo ""
+            echo "Esito: **$(cat dist/esito.txt 2>/dev/null || echo 'non eseguito')**"
+            echo ""
+            if [ "$(cat dist/esito.txt 2>/dev/null)" = "saltato" ]; then
+              echo "L'archivio ha meno di 180 giorni: nessuna chiamata API consumata."
+              echo "Per ricostruirlo comunque, usa **Run workflow** con *forza* attivo."
+            fi
+            if [ -f dist/meta.json ]; then
+              echo ""
+              echo '```json'
+              cat dist/meta.json
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
