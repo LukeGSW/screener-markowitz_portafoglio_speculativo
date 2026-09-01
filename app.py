@@ -180,22 +180,57 @@ if not archivio_pronto:
     st.markdown(
         """
 Questa applicazione non scarica i dati mentre la si usa: legge un archivio
-costruito in precedenza. Per averlo ci sono due strade.
+costruito in precedenza da un download vero di EOD Historical Data.
 
-**In aula o in locale** — costruiscilo una volta, con la tua chiave EODHD:
+**Sull'applicazione pubblicata** — imposta `ARCHIVE_URL` nei secrets di
+Streamlit, facendolo puntare alla release di GitHub prodotta dal workflow
+`aggiorna-archivio`. L'app scaricherà da sola quel che le serve.
+
+**In locale** — costruiscilo una volta, con la tua chiave EODHD:
 
 ```bash
 export EODHD_API_KEY="la_tua_chiave"
 python scripts/build_dataset.py --universo USA --anni 20 --out data
 ```
 
-Per una prova rapida, senza aspettare mezz'ora, aggiungi `--limite 400`.
-
-**Sull'applicazione pubblicata** — imposta `ARCHIVE_URL` nei secrets di
-Streamlit, facendolo puntare alla release di GitHub prodotta dal workflow
-`aggiorna-archivio`. L'app scarichera' da sola quel che le serve.
+Sono circa venticinque minuti e ventiquattromila chiamate API. Per una prova
+di funzionamento, `--limite 400` scarica solo i primi quattrocento titoli:
+resta un archivio di quotazioni **vere**, solo parziale.
         """
     )
+    st.stop()
+
+# --------------------------------------------------------------------------
+# Il controllo sull'origine dei dati
+# --------------------------------------------------------------------------
+# Un archivio finto non si distingue da uno vero guardando i grafici. Se ne
+# accorge chi controlla i ticker uno per uno, e nessuno lo fa. Percio' l'app
+# non prova nemmeno ad aprire un archivio che non dichiari di essere uscito
+# da un download vero: si ferma qui, e dice perche'.
+if not datastore.archivio_autentico(meta):
+    st.error("**Questo archivio non contiene quotazioni reali verificabili.**")
+    st.markdown(
+        f"""
+L'applicazione si è fermata prima di caricare qualunque dato, perché
+{datastore.perche_rifiutato(meta)}.
+
+Non è un eccesso di prudenza. Un archivio non autentico produce curve
+plausibili, statistiche credibili e portafogli dall'aria sensata: non c'è
+modo di accorgersene guardando i grafici. L'unico momento in cui si può
+intercettare è questo.
+
+**Come si rimedia.** Ricostruisci l'archivio da un download vero — dalla
+scheda *Actions* del repository, workflow *aggiorna-archivio*, pulsante
+*Run workflow* — e poi svuota la cache locale di questa applicazione, così
+che riscarichi la versione nuova.
+        """
+    )
+    with st.expander("Che cosa dice il file meta.json trovato"):
+        st.json(meta or {})
+    if st.button("Svuota la cache locale e riprova"):
+        datastore.svuota_cache()
+        st.cache_data.clear()
+        st.rerun()
     st.stop()
 
 firma = firma_archivio()
