@@ -43,6 +43,40 @@ VERSIONE_SCHEMA = 1
 # loro: chi legge il pannello li salta.
 SENZA_FETTA = -1
 
+# --------------------------------------------------------------------------
+# Il lucchetto sull'origine dei dati
+# --------------------------------------------------------------------------
+# Un archivio e' utilizzabile SOLO se dichiara di essere uscito da
+# build_dataset.py, cioe' da un download vero di EODHD. Qualunque altra cosa
+# - un archivio costruito a mano, il materiale sintetico dei test, un file
+# corrotto o troppo vecchio per avere questo campo - viene rifiutata.
+#
+# La ragione e' che un archivio finto non si distingue da uno vero guardando
+# i grafici: le curve sono plausibili, le statistiche pure. Se ne accorge chi
+# controlla i ticker uno per uno, e nessuno lo fa. Meglio un rifiuto secco
+# all'apertura che un'ora di lezione fatta su numeri inventati.
+ORIGINE_VALIDA = "eodhd"
+
+
+def archivio_autentico(meta: dict | None) -> bool:
+    """Vero solo per gli archivi prodotti da un download vero."""
+    return bool(meta) and meta.get("origine") == ORIGINE_VALIDA
+
+
+def perche_rifiutato(meta: dict | None) -> str:
+    """Spiega in italiano perche' un archivio non e' stato accettato."""
+    if not meta:
+        return ("l'archivio non ha un file meta.json leggibile")
+    origine = meta.get("origine")
+    if origine is None:
+        return ("l'archivio non dichiara la propria origine: e' stato "
+                "costruito con una versione precedente del programma, "
+                "prima che il controllo esistesse")
+    if origine == "test":
+        return ("l'archivio contiene DATI SINTETICI generati dai test, "
+                "non quotazioni reali")
+    return f"l'archivio dichiara un'origine sconosciuta ('{origine}')"
+
 
 class ArchivioMancante(RuntimeError):
     """L'archivio non c'e' e non si e' potuto scaricare."""
