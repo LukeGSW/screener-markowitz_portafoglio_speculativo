@@ -76,7 +76,19 @@ jobs:
           pip install -r requirements.txt
 
       - name: Controlla che il codice sia sano
-        run: python tests/test_equivalenza.py
+        # Trenta secondi spesi qui evitano di scoprire un errore dopo
+        # venticinque minuti di download e ventiquattromila chiamate API.
+        # Non e' un'ipotesi: e' successo. La prima costruzione completa e'
+        # arrivata in fondo al download e si e' schiantata scrivendo le
+        # tabelle, perche' due titoli su ventitremila esistevano nel listino
+        # ma non avevano quotazioni - un caso che l'archivio dimostrativo,
+        # allora, non sapeva riprodurre. Adesso lo riproduce, e il giro
+        # completo su dati finti viene fatto PRIMA di toccare la rete.
+        run: |
+          python tests/test_equivalenza.py
+          python scripts/archivio_demo.py --titoli 600 --fetta 250 --out prova
+          KQ_DATA_DIR=prova python tests/test_pipeline.py
+          rm -rf prova report_di_prova.html
 
       - name: Recupera lo stato dell'archivio attuale
         # E' la data dell'ultima costruzione, tenuta nel repository apposta
