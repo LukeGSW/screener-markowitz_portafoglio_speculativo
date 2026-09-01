@@ -1,21 +1,25 @@
 """
-Prova d'insieme: dall'archivio al report, senza interfaccia.
+Prova d'insieme: dall'archivio al report, senza interfaccia e senza rete.
 
-Percorre esattamente la strada che percorre l'applicazione - legge le
-misure, filtra, carica le serie dei promossi, simula, ricostruisce le curve,
-calcola le statistiche rolling, disegna i grafici e compone il report HTML -
-e verifica che ogni passaggio produca qualcosa di sensato.
+Percorre la stessa strada dell'applicazione - scrive l'archivio, riordina le
+fette, legge le misure, filtra, carica le serie dei promossi, simula,
+ricostruisce le curve, calcola le statistiche rolling, disegna i grafici e
+compone il report - e verifica che ogni passaggio produca qualcosa di
+sensato.
 
-Richiede un archivio in 'data'. Se non c'e', lo si crea in un attimo:
-    python scripts/archivio_demo.py --titoli 800
+I dati su cui gira sono sintetici, e non c'e' alcun modo che finiscano
+altrove: nascono in una cartella temporanea creata qui, il loro meta.json
+dichiara "origine": "test" - che l'applicazione rifiuta - e la cartella
+viene distrutta alla fine, anche se il test fallisce.
 
-Si esegue con:
     python tests/test_pipeline.py
 """
 
 from __future__ import annotations
 
+import shutil
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -30,6 +34,9 @@ from src.config import (BENCHMARK, FRONTIER_MAX_POINTS,             # noqa: E402
                         HEATMAP_MAX_TICKERS, HEATMAP_TOP_PORTFOLIOS,
                         MIN_TICKERS_FOR_MAX_RETURN, ROLLING_WINDOWS)
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import fixture                                                       # noqa: E402
+
 
 def cronometro(etichetta: str, funzione, *args, **kwargs):
     avvio = time.perf_counter()
@@ -38,50 +45,42 @@ def cronometro(etichetta: str, funzione, *args, **kwargs):
     return esito
 
 
-def main() -> int:
-    if not datastore.archivio_presente():
-        print("Manca l'archivio. Esegui prima:")
-        print("  python scripts/archivio_demo.py --titoli 800")
-        return 1
+def esegui(base: Path) -> None:
+    # ---- Costruzione dell'archivio di prova ------------------------------
+    print("Archivio di prova (dati sintetici, cartella temporanea)")
+    meta = cronometro("costruzione e riordino delle fette",
+                      fixture.costruisci, base, 600, 22, 42, 250)
+    print(f"  -> {meta['n_universo']} titoli, {meta['n_fette']} fette")
 
-    meta = datastore.leggi_meta() or {}
-    print(f"\nArchivio: {meta.get('universo_etichetta')} "
-          f"({meta.get('n_universo')} titoli)")
-    if meta.get("dimostrativo"):
-        print("ATTENZIONE: dati sintetici, nessun valore informativo.\n")
+    assert not datastore.archivio_autentico(meta), (
+        "IL LUCCHETTO E' ROTTO: l'applicazione accetterebbe dati sintetici. "
+        "Il meta.json dei test deve dichiarare origine 'test', non 'eodhd'."
+    )
+    print(f"  -> lucchetto verificato: {datastore.perche_rifiutato(meta)}")
 
     # ---- Screening -------------------------------------------------------
-    print("Screening")
+    print("\nScreening")
     metriche = cronometro("lettura della tabella delle misure",
-                          datastore.leggi_metriche)
+                          datastore.leggi_metriche, base)
     assert not metriche.empty
     assert "fetta" in metriche.columns
 
     # I titoli senza serie di prezzi devono restare nell'universo con
     # l'etichetta "nessuna fetta". E' il caso che ha fatto fallire la prima
     # costruzione completa: due titoli su ventitremila esistevano nel listino
-    # ma l'API non restituiva quotazioni, e il codice dava per scontato che
-    # ogni riga delle misure avesse un pannello dietro.
+    # ma non avevano quotazioni, e il codice dava per scontato che ogni riga
+    # delle misure avesse un pannello dietro.
     senza = metriche[metriche["fetta"] == datastore.SENZA_FETTA]
     assert metriche["fetta"].notna().all(), "nessuna fetta puo' essere NaN"
-    assert (senza["n_oss"] == 0).all(), \
-        "un titolo senza fetta non puo' avere osservazioni"
-    print(f"  -> {len(senza)} titoli senza serie di prezzi, correttamente "
-          f"marcati con fetta {datastore.SENZA_FETTA}")
-    if len(senza):
-        # Chiederli non deve rompere nulla: vanno semplicemente ignorati.
-        mappa_prova = datastore.mappa_fette_da_metriche(metriche)
-        vuoto = datastore.leggi_prezzi(senza["ticker"].tolist()[:3],
-                                       mappa_prova)
-        assert vuoto.empty, "un titolo senza fetta non deve restituire prezzi"
-        datastore.assicura_fette([datastore.SENZA_FETTA])   # non deve sollevare
+    assert len(senza) > 0, "il materiale di prova deve contenere questo caso"
+    assert (senza["n_oss"] == 0).all()
+    vuoto = datastore.leggi_prezzi(senza["ticker"].tolist()[:3],
+                                   datastore.mappa_fette_da_metriche(metriche),
+                                   base)
+    assert vuoto.empty, "un titolo senza fetta non deve restituire prezzi"
+    datastore.assicura_fette([datastore.SENZA_FETTA], base)   # non deve sollevare
+    print(f"  -> {len(senza)} titoli senza serie, gestiti senza rompere nulla")
 
-    # Si parte dalle soglie predefinite - le stesse della Cella 0 del
-    # notebook - e se l'archivio in uso e' troppo magro si allarga.
-    # Attenzione: allargare NON significa accorciare la finestra della
-    # performance continua. Una finestra piu' corta e' piu' difficile da
-    # tenere positiva, non piu' facile: tre anni che contengono solo il 2008
-    # chiudono in perdita, cinque anni che contengono anche il recupero no.
     tentativi = [
         screener.Filtri(),
         screener.Filtri(min_sharpe=0.0, max_drawdown=0.85,
@@ -91,9 +90,8 @@ def main() -> int:
                         prezzo_minimo=0.0, prezzo_massimo=1e6),
     ]
     for numero, filtri in enumerate(tentativi, start=1):
-        risultato = cronometro(
-            f"applicazione dei filtri all'universo intero ({numero})",
-            screener.applica, metriche, filtri)
+        risultato = cronometro(f"filtri sull'universo intero ({numero})",
+                               screener.applica, metriche, filtri)
         riepilogo = screener.riepilogo(risultato)
         promossi = screener.promossi(risultato)
         print(f"  -> {len(promossi)} promossi su {len(metriche)}")
@@ -108,7 +106,7 @@ def main() -> int:
     mappa = datastore.mappa_fette_da_metriche(metriche)
     elenco = sorted(set(promossi) | {BENCHMARK})
     prezzi = cronometro(f"lettura di {len(elenco)} serie dalle fette",
-                        datastore.leggi_prezzi, elenco, mappa)
+                        datastore.leggi_prezzi, elenco, mappa, base)
     assert not prezzi.empty
     print(f"  -> {prezzi.shape[1]} colonne, {prezzi.shape[0]} giorni, "
           f"dal {prezzi.index[0].date()} al {prezzi.index[-1].date()}")
@@ -142,7 +140,6 @@ def main() -> int:
 
     # ---- Serie dei portafogli -------------------------------------------
     print("\nRicostruzione delle serie")
-    serie, curve, cadute = {}, {}, {}
     for metodo in ("NONE", "BUYHOLD", "QUARTERLY", "SEMIANNUALLY", "ANNUALLY"):
         s = portfolio.serie_portafoglio(
             universo.rendimenti, chiave["Max Sharpe"]["tickers"], metodo)
@@ -151,11 +148,11 @@ def main() -> int:
         print(f"  {metodo:<14} CAGR {m['cagr']:>7.2%} | "
               f"drawdown {m['max_drawdown']:>7.2%} | {m['giorni']} giorni")
 
+    serie, curve, cadute = {}, {}, {}
     for nome, dati in chiave.items():
         s = portfolio.serie_portafoglio(universo.rendimenti, dati["tickers"],
                                         "NONE")
-        serie[nome] = s
-        curve[nome] = portfolio.equity(s)
+        serie[nome], curve[nome] = s, portfolio.equity(s)
         cadute[nome] = portfolio.drawdown(s)
     if universo.benchmark:
         s = universo.rendimenti[universo.benchmark].dropna()
@@ -213,9 +210,19 @@ def main() -> int:
     assert html.startswith("<!DOCTYPE html>")
     assert "plotly" in html.lower()
     assert html.count("<h2>") >= 8
-    destinazione = RADICE / "report_di_prova.html"
-    destinazione.write_text(html, encoding="utf-8")
-    print(f"  -> {len(html) / 1024 ** 2:.1f} MB scritti in {destinazione.name}")
+    print(f"  -> {len(html) / 1024 ** 2:.1f} MB composti in memoria")
+
+
+def main() -> int:
+    # Cartella temporanea del sistema: non e' 'data/', non e' dentro il
+    # progetto, e sparisce comunque vada.
+    base = Path(tempfile.mkdtemp(prefix="screener_prova_"))
+    print(f"Cartella di lavoro: {base}\n")
+    try:
+        esegui(base)
+    finally:
+        shutil.rmtree(base, ignore_errors=True)
+        print(f"\nCartella temporanea rimossa: {not base.exists()}")
 
     print("\nTutta la catena funziona.")
     return 0
