@@ -59,29 +59,94 @@ class EodhdError(RuntimeError):
 # --------------------------------------------------------------------------
 _PLACEHOLDERS = {"", "INCOLLA_QUI_LA_CHIAVE", "LA_TUA_API_KEY_EODHD", "demo"}
 
+# Il nome buono e' il primo. Gli altri sono errori di battitura ricorrenti,
+# accettati per non far perdere mezz'ora a chi ha scritto TOKEN invece di KEY.
+NOMI_CHIAVE = ("EODHD_API_KEY", "EODHD_API_TOKEN", "EODHD_TOKEN", "EODHD_KEY")
+
+
+def _ripulisci(valore) -> str | None:
+    """
+    Toglie spazi, a capo e virgolette da un valore incollato a mano.
+
+    Le virgolette sono l'errore piu' frequente: nel campo di un segreto di
+    GitHub va la chiave nuda, ma chi copia da un file TOML si porta dietro
+    anche le doppie virgolette, e la chiamata torna 401 senza spiegazioni.
+    """
+    if not isinstance(valore, str):
+        return None
+    valore = valore.strip().strip("\r\n").strip()
+    if len(valore) >= 2 and valore[0] == valore[-1] and valore[0] in "\"'":
+        valore = valore[1:-1].strip()
+    return valore or None
+
 
 def get_api_key() -> str | None:
     """
-    Legge la chiave dai secrets di Streamlit, o dall'ambiente.
+    Legge la chiave dall'ambiente, o dai secrets di Streamlit.
 
-    Su GitHub Actions arriva dalla variabile d'ambiente EODHD_API_KEY, che il
-    workflow riempie dal segreto del repository. Nell'app pubblicata arriva
-    dai secrets di Streamlit. In nessuno dei due casi compare a video.
+    L'ordine conta. Su GitHub Actions la chiave arriva dalla variabile
+    d'ambiente che il workflow riempie dal segreto del repository, e li'
+    Streamlit e' installato ma non c'e' nessun secrets.toml: interrogarlo per
+    primo significherebbe pagare due secondi di import per ottenere niente.
+    Nell'applicazione pubblicata succede l'opposto - nessuna variabile
+    d'ambiente, secrets pieni - e la ricerca prosegue.
+
+    In nessuno dei due casi la chiave compare a video.
     """
-    key = None
+    for nome in NOMI_CHIAVE:
+        pulita = _ripulisci(os.environ.get(nome))
+        if pulita and pulita not in _PLACEHOLDERS:
+            return pulita
+
     try:  # streamlit puo' non essere installato (script da riga di comando)
         import streamlit as st
 
-        key = st.secrets.get("EODHD_API_KEY")
+        for nome in NOMI_CHIAVE:
+            pulita = _ripulisci(st.secrets.get(nome))
+            if pulita and pulita not in _PLACEHOLDERS:
+                return pulita
     except Exception:
-        key = None
-    if not key:
-        key = os.environ.get("EODHD_API_KEY")
-    if isinstance(key, str):
-        key = key.strip()
-    if not key or key in _PLACEHOLDERS:
-        return None
-    return key
+        pass
+
+    return None
+
+
+def diagnostica_chiave() -> list[str]:
+    """
+    Racconta dove ha cercato la chiave e che cosa ha trovato, senza svelarla.
+
+    Serve quando il messaggio "manca la chiave" non basta: dice se il valore
+    c'e' ma e' un segnaposto, se e' finito sotto un nome sbagliato, o se non
+    c'e' proprio da nessuna parte.
+    """
+    righe = []
+    for nome in NOMI_CHIAVE:
+        grezzo = os.environ.get(nome)
+        if grezzo is None:
+            continue
+        pulita = _ripulisci(grezzo)
+        if not pulita:
+            righe.append(f"ambiente {nome}: presente ma vuoto")
+        elif pulita in _PLACEHOLDERS:
+            righe.append(f"ambiente {nome}: contiene ancora il segnaposto "
+                         f"'{pulita}'")
+        else:
+            righe.append(f"ambiente {nome}: presente, {len(pulita)} caratteri")
+
+    try:
+        import streamlit as st
+
+        trovati = [n for n in NOMI_CHIAVE if _ripulisci(st.secrets.get(n))]
+        righe.append("secrets di Streamlit: "
+                     + (", ".join(trovati) if trovati else "nessuna chiave"))
+    except Exception:
+        righe.append("secrets di Streamlit: non disponibili "
+                     "(normale fuori dall'applicazione)")
+
+    if not righe:
+        righe.append("nessuna variabile d'ambiente fra "
+                     + ", ".join(NOMI_CHIAVE))
+    return righe
 
 
 def mask_key(key: str | None) -> str:
