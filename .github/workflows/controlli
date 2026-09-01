@@ -1,0 +1,49 @@
+# ---------------------------------------------------------------------------
+# Controlli automatici a ogni modifica del codice.
+#
+# Il test che conta e' quello di equivalenza: verifica che lo screener
+# vettoriale dia gli stessi identici verdetti delle funzioni della Cella 3
+# del notebook, su quattrocento titoli sintetici e tre diverse
+# configurazioni di soglie. Riscrivere un calcolo per renderlo cento volte
+# piu' rapido serve a poco se poi seleziona titoli diversi.
+#
+# Gira in meno di un minuto e non consuma alcuna chiamata API.
+# ---------------------------------------------------------------------------
+
+name: controlli
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  controlla:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Installa le dipendenze
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Equivalenza con il notebook
+        run: python tests/test_equivalenza.py
+
+      - name: Prova d'insieme su un archivio dimostrativo
+        run: |
+          python scripts/archivio_demo.py --titoli 600 --out data
+          python tests/test_pipeline.py
+
+      - name: Le pagine si compilano
+        run: |
+          python -m compileall -q app.py src scripts tests
