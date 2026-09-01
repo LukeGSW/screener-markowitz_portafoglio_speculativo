@@ -39,10 +39,8 @@ jobs:
       - name: Equivalenza con il notebook
         run: python tests/test_equivalenza.py
 
-      - name: Prova d'insieme su un archivio dimostrativo
-        run: |
-          python scripts/archivio_demo.py --titoli 600 --out data
-          python tests/test_pipeline.py
+      - name: Prova d'insieme, dall'archivio al report
+        run: python tests/test_pipeline.py
 
       - name: Le pagine si compilano
         run: |
