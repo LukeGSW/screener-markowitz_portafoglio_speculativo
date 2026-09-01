@@ -275,6 +275,10 @@ def main() -> int:
     con_venti_anni = int((tabella["anni_storico"] >= args.anni - 0.1).sum())
 
     meta = datastore.scrivi_meta({
+        # Il timbro che l'applicazione controlla prima di aprire l'archivio.
+        # Lo scrive solo questa riga, e questa riga viene eseguita solo dopo
+        # un download vero: nessun'altra strada lo produce.
+        "origine": datastore.ORIGINE_VALIDA,
         "costruito_il": dt.datetime.now(dt.timezone.utc).isoformat(),
         "universo": args.universo,
         "universo_etichetta": etichetta,
