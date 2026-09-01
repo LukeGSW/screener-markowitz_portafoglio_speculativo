@@ -91,6 +91,70 @@ jobs:
             echo "Nessun archivio precedente: si costruisce da zero."
           fi
 
+      - name: Controlla che la chiave API sia arrivata
+        # Il segreto arriva vuoto piu' spesso di quanto si creda, e il
+        # messaggio "manca EODHD_API_KEY" da solo non dice perche'. Questo
+        # passo distingue i quattro casi possibili prima di sprecare tempo.
+        #
+        # Nota: GitHub oscura automaticamente il valore dei segreti nei log.
+        # Qui non si stampa comunque il valore, solo la sua lunghezza.
+        env:
+          CHIAVE: ${{ secrets.EODHD_API_KEY }}
+          CHIAVE_VARIABILE: ${{ vars.EODHD_API_KEY }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          if [ -n "$CHIAVE" ]; then
+            echo "Segreto EODHD_API_KEY trovato: ${#CHIAVE} caratteri."
+            case "$CHIAVE" in
+              *[![:print:]]*) echo "::warning::Il valore contiene caratteri non stampabili: potresti averlo incollato con un a capo." ;;
+            esac
+            case "$CHIAVE" in
+              \"*\"|\'*\') echo "::warning::Il valore e' racchiuso fra virgolette. Toglile: nel campo del segreto va solo la chiave nuda." ;;
+            esac
+            case "$CHIAVE" in
+              " "*|*" ") echo "::warning::Il valore ha spazi all'inizio o alla fine." ;;
+            esac
+            exit 0
+          fi
+
+          echo "::error::Il segreto EODHD_API_KEY e' vuoto o non esiste in questo repository."
+          {
+            echo "## Chiave API non trovata"
+            echo ""
+            if [ -n "$CHIAVE_VARIABILE" ]; then
+              echo "**Trovato l'inghippo.** Esiste una *Variable* di nome"
+              echo "\`EODHD_API_KEY\`, ma non un *Secret*."
+              echo ""
+              echo "In **Settings - Secrets and variables - Actions** ci sono due"
+              echo "schede. La chiave e' finita in **Variables**, mentre il"
+              echo "workflow la cerca in **Secrets**. Cancellala da Variables e"
+              echo "ricreala in Secrets con *New repository secret*: le Variables"
+              echo "sono in chiaro e leggibili da chiunque veda i log."
+            else
+              echo "Il workflow ha cercato \`secrets.EODHD_API_KEY\` nel"
+              echo "repository \`$REPOSITORY\` e non ha trovato nulla."
+              echo "Le cause possibili sono quattro, in ordine di frequenza:"
+              echo ""
+              echo "1. La chiave e' stata inserita nella scheda **Variables**"
+              echo "   invece che in **Secrets**. Sono due schede diverse della"
+              echo "   stessa pagina. (Questo controllo dice di no, ma verifica.)"
+              echo "2. Il **nome** non coincide. Deve essere esattamente"
+              echo "   \`EODHD_API_KEY\`: maiuscole comprese, senza spazi prima o"
+              echo "   dopo. Un \`EODHD_API_KEY \` con uno spazio finale e' un"
+              echo "   nome diverso."
+              echo "3. E' stato creato come segreto di **Environment** invece che"
+              echo "   di repository. I segreti di environment sono visibili solo"
+              echo "   ai job che dichiarano \`environment:\`, e questo non lo fa."
+              echo "4. E' stato creato in un **altro repository**, o a livello di"
+              echo "   organizzazione senza dare accesso a questo repository."
+              echo ""
+              echo "Percorso corretto: **Settings - Secrets and variables -"
+              echo "Actions - scheda Secrets - New repository secret**."
+              echo "Nome \`EODHD_API_KEY\`, valore la chiave nuda senza virgolette."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+
       - name: Costruisci l'archivio
         env:
           EODHD_API_KEY: ${{ secrets.EODHD_API_KEY }}
