@@ -180,7 +180,8 @@ def main() -> int:
     # ---- Fette -----------------------------------------------------------
     mappa_fette = datastore.assegna_fette(tickers, args.fetta)
     n_fette = max(mappa_fette.values()) + 1
-    log(f"Il pannello prezzi sara' diviso in {n_fette} fette da {args.fetta}.")
+    log(f"Il pannello prezzi sara' diviso in {n_fette} "
+        + (f"fette da {args.fetta} titoli." if n_fette != 1 else "fetta sola."))
     log("")
 
     per_fetta: dict[int, list[str]] = {}
@@ -238,7 +239,8 @@ def main() -> int:
         n_colonne_totali += n_colonne
         peso = datastore.percorso_fetta(indice, destinazione).stat().st_size
         log(f"  fetta {indice:02d}: {n_colonne:,} serie salvate "
-            f"({peso / 1024 ** 2:.1f} MB)")
+            + (f"({peso / 1024 ** 2:.1f} MB)" if peso >= 1024 ** 2
+               else f"({peso / 1024:.0f} KB)"))
         serie.clear()
 
     secondi_download = time.perf_counter() - avvio_download
@@ -300,7 +302,9 @@ def main() -> int:
     log(f"  titoli nell'universo          : {len(tickers):,}")
     log(f"  titoli con serie storiche     : {n_colonne_totali:,}")
     log(f"  titoli con {args.anni} anni pieni       : {con_venti_anni:,}")
-    log(f"  peso totale                   : {peso / 1024 ** 2:.0f} MB")
+    log(f"  peso totale                   : "
+        + (f"{peso / 1024 ** 2:,.0f} MB" if peso >= 10 * 1024 ** 2
+           else f"{peso / 1024:,.0f} KB"))
     log(f"  tempo totale                  : {durata(time.perf_counter() - avvio)}")
     log("=" * 66)
     return 0
