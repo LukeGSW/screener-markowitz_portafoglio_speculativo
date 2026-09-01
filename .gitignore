@@ -1,0 +1,23 @@
+# LA CHIAVE API NON DEVE MAI FINIRE SU GITHUB
+.streamlit/secrets.toml
+
+# L'archivio dati non sta nel repository: viene pubblicato come release
+# dal workflow "aggiorna-archivio" e scaricato dall'app al bisogno.
+data/
+dist/
+report_di_prova.html
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.ipynb_checkpoints/
+.pytest_cache/
+
+# Sistema operativo / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
