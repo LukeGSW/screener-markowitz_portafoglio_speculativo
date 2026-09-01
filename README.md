@@ -232,31 +232,43 @@ più.
 pip install -r requirements.txt
 ```
 
-### Con dati veri
-
 ```bash
 export EODHD_API_KEY="la_tua_chiave"
 python scripts/build_dataset.py --universo USA --anni 20 --out data
 streamlit run app.py
 ```
 
-Per una prova rapida, senza aspettare mezz'ora, aggiungi `--limite 400`.
-
-### Senza chiave API
-
-```bash
-python scripts/archivio_demo.py --titoli 1200
-streamlit run app.py
-```
-
-Genera milleduecento titoli **sintetici** con caratteristiche verosimili —
-storie di lunghezza diversa, tre crisi di mercato correlate, una quota di
-compounder regolari — e scrive un archivio nella stessa identica forma di
-quello vero. Serve a provare l'interfaccia e a fare lezione quando la rete
-non collabora. *I dati non sono dati di mercato: non ricavarne alcuna
-conclusione.*
+Sono circa venticinque minuti e ventiquattromila chiamate API. Per una prova
+di funzionamento, `--limite 400` scarica solo i primi quattrocento titoli:
+resta un archivio di quotazioni **vere**, semplicemente parziale.
 
 L'applicazione si apre su `http://localhost:8501`.
+
+---
+
+## L'archivio o è vero, o non si apre
+
+Non esiste alcun comando, in questo progetto, che generi un archivio di dati
+finti. È una scelta, e la ragione è semplice: **un archivio sintetico non si
+distingue da uno vero guardando i grafici.** Le curve sono plausibili, le
+statistiche credibili, i portafogli hanno l'aria sensata. Se ne accorgerebbe
+solo chi controlla i ticker uno per uno, e nessuno lo fa — men che meno
+durante una lezione.
+
+Quindi il controllo è a monte e non è aggirabile per distrazione:
+
+- `build_dataset.py` scrive nel `meta.json` il campo `"origine": "eodhd"`, e
+  quella riga viene eseguita **solo dopo un download vero**;
+- l'applicazione, prima di caricare qualunque dato, verifica quel campo. Se
+  manca o dice altro, **si ferma** con una schermata che spiega perché e come
+  rimediare. Non mostra un avviso: rifiuta di partire;
+- gli unici dati sintetici del progetto vivono dentro `tests/fixture.py`,
+  nascono in una cartella temporanea del sistema, dichiarano
+  `"origine": "test"` e vengono distrutti a fine test. Anche se qualcuno li
+  copiasse in `data/`, l'applicazione li respingerebbe.
+
+Il test d'insieme verifica **anche il lucchetto**: fallisce se l'archivio di
+prova venisse per qualunque motivo accettato come autentico.
 
 ---
 
@@ -264,7 +276,7 @@ L'applicazione si apre su `http://localhost:8501`.
 
 ```bash
 python tests/test_equivalenza.py     # gli stessi verdetti del notebook
-python tests/test_pipeline.py        # dall'archivio al report
+python tests/test_pipeline.py        # dall'archivio al report, senza rete
 ```
 
 Il primo è quello che conta. Riscrivere un calcolo per renderlo cento volte
@@ -302,11 +314,11 @@ screener-markowitz/
 │   └── report.py              esportazione HTML
 ├── scripts/
 │   ├── build_dataset.py       costruzione dell'archivio (è ciò che gira in CI)
-│   ├── archivio_demo.py       archivio sintetico, per provare senza chiave
 │   └── note_release.py        note della release da meta.json
 ├── tests/
+│   ├── fixture.py             materiale sintetico, solo per i test
 │   ├── test_equivalenza.py    stessi verdetti del notebook
-│   └── test_pipeline.py       prova d'insieme
+│   └── test_pipeline.py       prova d'insieme, dall'archivio al report
 └── .github/workflows/
     ├── aggiorna-archivio.yml  ricostruzione semestrale
     └── controlli.yml          test a ogni push
