@@ -57,6 +57,25 @@ def main() -> int:
     assert not metriche.empty
     assert "fetta" in metriche.columns
 
+    # I titoli senza serie di prezzi devono restare nell'universo con
+    # l'etichetta "nessuna fetta". E' il caso che ha fatto fallire la prima
+    # costruzione completa: due titoli su ventitremila esistevano nel listino
+    # ma l'API non restituiva quotazioni, e il codice dava per scontato che
+    # ogni riga delle misure avesse un pannello dietro.
+    senza = metriche[metriche["fetta"] == datastore.SENZA_FETTA]
+    assert metriche["fetta"].notna().all(), "nessuna fetta puo' essere NaN"
+    assert (senza["n_oss"] == 0).all(), \
+        "un titolo senza fetta non puo' avere osservazioni"
+    print(f"  -> {len(senza)} titoli senza serie di prezzi, correttamente "
+          f"marcati con fetta {datastore.SENZA_FETTA}")
+    if len(senza):
+        # Chiederli non deve rompere nulla: vanno semplicemente ignorati.
+        mappa_prova = datastore.mappa_fette_da_metriche(metriche)
+        vuoto = datastore.leggi_prezzi(senza["ticker"].tolist()[:3],
+                                       mappa_prova)
+        assert vuoto.empty, "un titolo senza fetta non deve restituire prezzi"
+        datastore.assicura_fette([datastore.SENZA_FETTA])   # non deve sollevare
+
     # Si parte dalle soglie predefinite - le stesse della Cella 0 del
     # notebook - e se l'archivio in uso e' troppo magro si allarga.
     # Attenzione: allargare NON significa accorciare la finestra della
