@@ -1,0 +1,16 @@
+[theme]
+base = "dark"
+primaryColor = "#2DD4BF"
+backgroundColor = "#0B1220"
+secondaryBackgroundColor = "#141F35"
+textColor = "#E6EDF7"
+font = "sans serif"
+
+[server]
+headless = true
+# L'archivio non passa mai dal caricamento file, ma le esportazioni HTML
+# possono superare i limiti predefiniti.
+maxUploadSize = 50
+
+[browser]
+gatherUsageStats = false
