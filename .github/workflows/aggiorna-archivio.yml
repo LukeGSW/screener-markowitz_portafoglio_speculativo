@@ -84,11 +84,14 @@ jobs:
         # ma non avevano quotazioni - un caso che l'archivio dimostrativo,
         # allora, non sapeva riprodurre. Adesso lo riproduce, e il giro
         # completo su dati finti viene fatto PRIMA di toccare la rete.
+        #
+        # I test lavorano su dati sintetici che nascono e muoiono in una
+        # cartella temporanea del sistema, marcati "origine: test": non
+        # esiste alcun percorso per cui possano finire nell'archivio vero,
+        # e l'applicazione li rifiuterebbe comunque all'apertura.
         run: |
           python tests/test_equivalenza.py
-          python scripts/archivio_demo.py --titoli 600 --fetta 250 --out prova
-          KQ_DATA_DIR=prova python tests/test_pipeline.py
-          rm -rf prova report_di_prova.html
+          python tests/test_pipeline.py
 
       - name: Recupera lo stato dell'archivio attuale
         # E' la data dell'ultima costruzione, tenuta nel repository apposta
